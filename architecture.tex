@@ -1,0 +1,35 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\title{\textbf{Residuum\_Modulus: A Cyber-Physical System Security Agent for Networked Microgrids}}
+\author{Gangaharidi Narayan Kashyap}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{System Overview}
+The proposed architecture integrates a Large Language Model (Gemini 1.5 Pro) with a Physics-Informed Generative Adversarial Network (PI-GAN) to autonomously detect and mitigate Data Integrity Attacks in smart grid infrastructures. 
+
+\section{Microgrid Topology}
+The agent monitors a tripartite networked topology consisting of:
+\begin{itemize}
+    \item \textbf{Microgrid 1:} Residential (Photovoltaic \& Load dynamics)
+    \item \textbf{Microgrid 2:} Commercial (Photovoltaic \& Load dynamics)
+    \item \textbf{Microgrid 3:} Industrial (Photovoltaic \& Load dynamics)
+\end{itemize}
+
+\section{Operational Logic and MCP Integration}
+The agent utilizes the MongoDB Model Context Protocol (MCP) Server to access historical load series via the \texttt{query\_historical\_load} tool. 
+
+Upon retrieval, the agent employs a Chain-of-Thought reasoning framework to evaluate the data integrity. The \texttt{detect\_adversarial\_fault} tool triggers the PI-GAN inference model on Vertex AI. The PI-GAN evaluates the residual deviation between the incoming data $x$ and the learned physical manifold $\mathcal{M}$. 
+
+If the confidence score of an adversarial perturbation exceeds the strict threshold of $\rho > 0.85$, the agent autonomously formulates a mitigation strategy, effectively bridging the gap between cyber-anomaly detection and physical grid resilience.
+
+\end{document}
