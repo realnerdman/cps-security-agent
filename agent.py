@@ -1,20 +1,37 @@
 import os
 import json
+from pymongo import MongoClient
 from langchain_google_vertexai import ChatVertexAI
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import SystemMessage, HumanMessage
 
 # ==========================================
-# 1. Tool Definitions
+# 1. MongoDB Configuration & Tool Definition
 # ==========================================
+
+MONGO_URI = os.getenv("MONGODB_URI")
+if not MONGO_URI:
+    raise ValueError("MONGODB_URI environment variable not set.")
+
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client["microgrid_network"] 
+collection = db["historical_telemetry"]
 
 @tool
 def query_historical_load(microgrid_id: str, timestamp: str) -> str:
-    """Fetches historical load and PV data from the MongoDB MCP Server."""
-    # Placeholder for actual MongoDB MCP integration logic
-    # Mapping: Microgrid1=Residential, Microgrid2=Commercial, Microgrid3=Industrial
-    return f"Retrieved data for {microgrid_id} at {timestamp} from MongoDB."
+    """Fetches historical load and PV data from the MongoDB database."""
+    print(f"\n[Tool Execution] Querying MongoDB for {microgrid_id} at {timestamp}...")
+    
+    record = collection.find_one({
+        "microgrid_id": microgrid_id, 
+        "timestamp": timestamp
+    })
+    
+    if record:
+        return f"Retrieved data for {microgrid_id}: Load = {record.get('load_kw')}kW, PV Output = {record.get('pv_kw')}kW."
+    else:
+        return f"No live data found in MongoDB for {microgrid_id}."
 
 @tool
 def detect_adversarial_fault(microgrid_id: str, load_data: float, pv_output: float) -> str:
@@ -22,6 +39,8 @@ def detect_adversarial_fault(microgrid_id: str, load_data: float, pv_output: flo
     Triggers Vertex AI PI-GAN model to check for False Data Injection Attacks (FDIA).
     Returns confidence score of data integrity violation.
     """
+    print(f"[Tool Execution] Running PI-GAN Anomaly Detection on {microgrid_id}...")
+    
     # Simulated PI-GAN inference
     confidence = 0.92 if microgrid_id == "Microgrid3" else 0.15 
     return json.dumps({
@@ -36,8 +55,10 @@ tools = [query_historical_load, detect_adversarial_fault]
 # 2. The Brain: Gemini 1.5 Pro & System Logic
 # ==========================================
 
+# Ignore the deprecation warning; for Vertex AI, this is the correct current module
+
 llm = ChatVertexAI(
-    model_name="gemini-1.5-pro-preview-0409", 
+    model_name="gemini-2.5-pro", 
     temperature=0.2 
 )
 
@@ -52,27 +73,31 @@ You monitor the following topology:
 
 Chain-of-Thought Reasoning Protocol:
 1. Observe: When tasked, fetch data using 'query_historical_load'.
-2. Analyze: State your reasoning explicitly. Example: "I am comparing the current PV output against the PI-GAN predicted manifold for potential spoofing."
+2. Analyze: State your reasoning explicitly based on the physics of the grid.
 3. Detect: Use 'detect_adversarial_fault' to analyze the data.
-4. Mitigate: If attack_confidence > 0.85, you MUST output a mitigation plan (e.g., isolating the compromised node, re-routing load to unaffected microgrids).
+4. Mitigate: If attack_confidence > 0.85, you MUST output a mitigation plan (e.g., isolating the compromised node, re-routing load).
 """
-
-prompt = ChatPromptTemplate.from_messages([
-    ("system", system_instruction),
-    ("human", "{input}"),
-    ("placeholder", "{agent_scratchpad}"),
-])
 
 # ==========================================
 # 3. Agent Execution
 # ==========================================
 
-agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+# Standardized LangGraph initialization
+agent_executor = create_react_agent(llm, tools)
 
 if __name__ == "__main__":
-    # Test the Agent
     test_mission = "Analyze Microgrid3 for potential adversarial anomalies at 14:00 hours."
     print(f"Executing Mission: {test_mission}\n")
-    response = agent_executor.invoke({"input": test_mission})
-    print("\nFinal Output:", response['output'])
+    
+    # Injecting the SystemMessage directly into the invoke call avoids version conflicts
+    response = agent_executor.invoke({
+        "messages": [
+            SystemMessage(content=system_instruction),
+            HumanMessage(content=test_mission)
+        ]
+    })
+    
+    print("\n==========================================")
+    print("FINAL MITIGATION PLAN:")
+    print("==========================================")
+    print(response["messages"][-1].content[0]['text'])
