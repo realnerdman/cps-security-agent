@@ -1,10 +1,21 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import json
+import warnings
+from dotenv import load_dotenv
 from pymongo import MongoClient
 from langchain_google_vertexai import ChatVertexAI
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import SystemMessage, HumanMessage
+
+# 🛑 Mute all LangChain deprecation warnings for a pristine terminal UI
+warnings.filterwarnings("ignore")
+
+# Load environment variables from .env vault
+load_dotenv()
 
 # ==========================================
 # 1. MongoDB Configuration & Tool Definition
@@ -21,12 +32,13 @@ collection = db["historical_telemetry"]
 @tool
 def query_historical_load(microgrid_id: str, timestamp: str) -> str:
     """Fetches historical load and PV data from the MongoDB database."""
-    print(f"\n[Tool Execution] Querying MongoDB for {microgrid_id} at {timestamp}...")
+    print(f"\n[Tool Execution] Querying MongoDB for {microgrid_id}...")
     
-    record = collection.find_one({
-        "microgrid_id": microgrid_id, 
-        "timestamp": timestamp
-    })
+    # Pull the absolute latest telemetry reading using _id to avoid string sorting traps
+    record = collection.find_one(
+        {"microgrid_id": microgrid_id},
+        sort=[("_id", -1)] 
+    )
     
     if record:
         return f"Retrieved data for {microgrid_id}: Load = {record.get('load_kw')}kW, PV Output = {record.get('pv_kw')}kW."
@@ -52,10 +64,8 @@ def detect_adversarial_fault(microgrid_id: str, load_data: float, pv_output: flo
 tools = [query_historical_load, detect_adversarial_fault]
 
 # ==========================================
-# 2. The Brain: Gemini 1.5 Pro & System Logic
+# 2. The Brain: Gemini 2.5 Pro & System Logic
 # ==========================================
-
-# Ignore the deprecation warning; for Vertex AI, this is the correct current module
 
 llm = ChatVertexAI(
     model_name="gemini-2.5-pro", 
@@ -86,7 +96,7 @@ Chain-of-Thought Reasoning Protocol:
 agent_executor = create_react_agent(llm, tools)
 
 if __name__ == "__main__":
-    test_mission = "Analyze Microgrid3 for potential adversarial anomalies at 14:00 hours."
+    test_mission = "Fetch the live telemetry for Microgrid3. Analyze it for potential adversarial anomalies using the PI-GAN logic, and deploy a mitigation plan if an attack is detected."
     print(f"Executing Mission: {test_mission}\n")
     
     # Injecting the SystemMessage directly into the invoke call avoids version conflicts
@@ -100,4 +110,10 @@ if __name__ == "__main__":
     print("\n==========================================")
     print("FINAL MITIGATION PLAN:")
     print("==========================================")
-    print(response["messages"][-1].content[0]['text'])
+    
+    # Safely extract text if LangGraph returns a list of blocks
+    final_verdict = response["messages"][-1].content
+    if isinstance(final_verdict, list):
+        final_verdict = final_verdict[0].get('text', str(final_verdict))
+        
+    print(final_verdict)
